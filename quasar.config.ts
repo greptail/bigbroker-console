@@ -1,8 +1,6 @@
 // Configuration for your app
 // https://v2.quasar.dev/quasar-cli-webpack/quasar-config-file
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-
 import { defineConfig } from '#q-app/wrappers';
 
 export default defineConfig((/* ctx */) => {
@@ -78,12 +76,22 @@ export default defineConfig((/* ctx */) => {
       // chainWebpack (/* chain, { isClient, isServer } */) {}
     },
 
-    // Full list of options: https://v2.quasar.dev/quasar-cli-webpack/quasar-config-file#devserver
     devServer: {
-      server: {
-        type: 'http',
-      },
-      open: true, // opens browser window automatically
+      server: { type: 'http' },
+      proxy: [
+        {
+          context: ['/api'],
+          target: 'http://localhost:1772',
+          changeOrigin: true,
+          // Remove this line: pathRewrite: { '^/api': '' },
+          logLevel: 'debug',
+          configure: (proxy, options) => {
+            console.log('Proxy options:', options);
+            console.log('Proxy instance:', proxy);
+          },
+        },
+      ],
+      open: true,
     },
 
     // https://v2.quasar.dev/quasar-cli-webpack/quasar-config-file#framework
@@ -101,7 +109,7 @@ export default defineConfig((/* ctx */) => {
       // directives: [],
 
       // Quasar plugins
-      plugins: [],
+      plugins: ['Notify', 'Dialog'],
     },
 
     // animations: 'all', // --- includes all animations
