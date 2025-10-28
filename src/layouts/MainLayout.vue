@@ -27,6 +27,7 @@
           title="Queues"
           :rows="summaryRows"
           :columns="summaryColumns"
+          :pagination="{ rowsPerPage: 50 }"
           row-key="queue"
         >
           <template v-slot:top>
@@ -147,54 +148,13 @@ import axios from 'axios';
 import CreateQueueDialog from 'components/CreateQueueDialog.vue';
 
 // --- API Response Interfaces ---
-import type { QueueApiResponse } from 'src/layouts/types/QueueApiResponse';
+import type {
+  QueueApiResponse,
+  QueueInfo,
+  SummaryRow,
+  DequeueWithDelivery,
+} from 'src/layouts/types/Type';
 // --- Local Interfaces ---
-interface DeliveryInfo {
-  error: number;
-  accepted: number;
-  perSec: number;
-}
-interface DequeueInfo {
-  totalRequested: number;
-  totalAccepted: number;
-  totalRejected: number;
-  perSec: number;
-  node: string;
-  delivery: DeliveryInfo;
-}
-interface DequeueWithDelivery extends DequeueInfo {
-  deliveryAccepted: number;
-  deliveryError: number;
-}
-interface QueueInfo {
-  nodes: string[];
-  size: number;
-  pendingToBeRecovered: number;
-  partition: string;
-  tps: number;
-  consumers: string[];
-  enqueue: Array<{
-    totalSubmitted: number;
-    totalAccepted: number;
-    totalRejected: number;
-    node: string;
-  }>;
-  dequeue: Array<DequeueWithDelivery>;
-  recovery: Array<{
-    totalSubmitted: number;
-    totalAccepted: number;
-    totalRejected: number;
-    node: string;
-  }>;
-}
-interface SummaryRow {
-  queue: string;
-  size: number;
-  enqueue: number;
-  dequeue: number;
-  consumers?: number;
-  tps?: string;
-}
 
 export default defineComponent({
   name: 'MainLayout',
@@ -215,7 +175,9 @@ export default defineComponent({
         const formatted: Record<string, QueueInfo> = {};
 
         res.data.forEach((item) => {
-          expandedTabs.value[item.name] = 'consumers';
+          if (!expandedTabs.value[item.name]) {
+            expandedTabs.value[item.name] = 'consumers';
+          }
           const metric = item.metric ?? {};
           const dq = metric.dequeue ?? {};
           const enq = metric.enqueue ?? {};
@@ -227,8 +189,9 @@ export default defineComponent({
             size: metric.size ?? 0,
             pendingToBeRecovered: metric.pendingToBeRecovered ?? 0,
             partition: `${localQueues.length} nodes`,
-            tps: 0,
+            perSec: 0,
             consumers: metric.consumers ?? [],
+            inFlight: metric.inFlight ?? 0, // Added inFlight property with a default value
             enqueue: [
               {
                 totalSubmitted: enq.submitted ?? 0,
@@ -252,6 +215,7 @@ export default defineComponent({
                 totalRejected: dq.rejected ?? 0,
                 node: 'All',
                 perSec: item.metric?.perSec ?? 0,
+                inFlight: item.metric?.inFlight ?? 0,
                 delivery: {
                   accepted: dq.delivery?.accepted ?? 0,
                   error: dq.delivery?.rejected ?? 0,
@@ -284,6 +248,7 @@ export default defineComponent({
               totalRejected: lq.dequeue?.rejected ?? 0,
               node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
               perSec: lq.perSec ?? 0,
+              inFlight: lq.inFlight ?? 0,
               delivery: {
                 accepted: lq.dequeue?.delivery?.accepted ?? 0,
                 error: lq.dequeue?.delivery?.rejected ?? 0,
@@ -329,7 +294,8 @@ export default defineComponent({
       { name: 'queue', label: 'Queue', field: 'queue', align: 'left' },
       { name: 'size', label: 'Size', field: 'size', align: 'right' },
       { name: 'consumers', label: 'Consumers', field: 'consumers', align: 'right' },
-      { name: 'tps', label: 'Throughput per Sec', field: 'tps', align: 'right' },
+      { name: 'tps', label: 'Throughput per Sec', field: 'perSec', align: 'right' },
+      { name: 'inFlight', label: 'In Flight', field: 'inFlight', align: 'right' },
       { name: 'enqueue', label: 'Enqueue', field: 'enqueue', align: 'right' },
       { name: 'dequeue', label: 'Dequeue', field: 'dequeue', align: 'right' },
     ];
@@ -341,8 +307,8 @@ export default defineComponent({
         enqueue: info.enqueue[0]?.totalAccepted ?? 0,
         dequeue: info.dequeue[0]?.totalAccepted ?? 0,
         consumers: info.consumers.length,
-        tps: `${info.tps}`,
-        // tps: `${info.dequeue.delivery.perSec} / ${info.tps}`,
+        perSec: `${info.perSec}`,
+        inFlight: `${info.inFlight}`, // Placeholder or remove this line if not needed
       })),
     );
 
@@ -360,6 +326,7 @@ export default defineComponent({
           deliveryAccepted: info.dequeue[0]?.delivery.accepted ?? 0,
           deliveryError: info.dequeue[0]?.delivery.error ?? 0,
           perSec: info.dequeue[0]?.perSec ?? 0,
+          inFlight: info.dequeue[0]?.inFlight ?? 0,
         },
       };
     };
@@ -452,6 +419,7 @@ export default defineComponent({
       { name: 'deliveryAccepted', label: 'Delivery Accepted', field: 'deliveryAccepted' },
       { name: 'deliveryError', label: 'Delivery Error', field: 'deliveryError' },
       { name: 'perSec', label: 'Throughput', field: 'perSec' },
+      { name: 'inFlight', label: 'In Flight', field: 'inFlight' },
     ];
 
     return {

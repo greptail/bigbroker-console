@@ -81,7 +81,7 @@ export default defineConfig((/* ctx */) => {
       proxy: [
         {
           context: ['/api'],
-          target: 'http://localhost:1772',
+          target: 'http://localhost:1771',
           changeOrigin: true,
           // Remove this line: pathRewrite: { '^/api': '' },
           logLevel: 'debug',
