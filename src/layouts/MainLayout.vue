@@ -189,7 +189,9 @@ export default defineComponent({
             size: metric.size ?? 0,
             pendingToBeRecovered: metric.pendingToBeRecovered ?? 0,
             partition: `${localQueues.length} nodes`,
-            perSec: 0,
+            perSec: metric.perSec ?? 0,
+            maxPerSec: metric.maxPerSec ?? 0,
+
             consumers: metric.consumers ?? [],
             inFlight: metric.inFlight ?? 0, // Added inFlight property with a default value
             enqueue: [
@@ -307,7 +309,7 @@ export default defineComponent({
         enqueue: info.enqueue[0]?.totalAccepted ?? 0,
         dequeue: info.dequeue[0]?.totalAccepted ?? 0,
         consumers: info.consumers.length,
-        perSec: `${info.perSec}`,
+        perSec: `${info.perSec}/${info.maxPerSec}`, // Display current and max TPS
         inFlight: `${info.inFlight}`, // Placeholder or remove this line if not needed
       })),
     );
