@@ -199,6 +199,7 @@ export default defineComponent({
                 totalSubmitted: enq.submitted ?? 0,
                 totalAccepted: enq.accepted ?? 0,
                 totalRejected: enq.rejected ?? 0,
+                pipe: enq.pipe ?? 0,
                 node: 'All',
               },
             ],
@@ -207,6 +208,7 @@ export default defineComponent({
                 totalSubmitted: rec.submitted ?? 0,
                 totalAccepted: rec.accepted ?? 0,
                 totalRejected: rec.rejected ?? 0,
+                pipe: 0,
                 node: 'All',
               },
             ],
@@ -215,6 +217,7 @@ export default defineComponent({
                 totalRequested: dq.requested ?? 0,
                 totalAccepted: dq.accepted ?? 0,
                 totalRejected: dq.rejected ?? 0,
+                pipe: dq.pipe ?? 0,
                 node: 'All',
                 perSec: item.metric?.perSec ?? 0,
                 inFlight: item.metric?.inFlight ?? 0,
@@ -234,6 +237,7 @@ export default defineComponent({
               totalSubmitted: lq.enqueue?.submitted ?? 0,
               totalAccepted: lq.enqueue?.accepted ?? 0,
               totalRejected: lq.enqueue?.rejected ?? 0,
+              pipe: lq.enqueue?.pipe ?? 0,
               node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
             });
 
@@ -241,6 +245,7 @@ export default defineComponent({
               totalSubmitted: lq.recovery?.submitted ?? 0,
               totalAccepted: lq.recovery?.accepted ?? 0,
               totalRejected: lq.recovery?.rejected ?? 0,
+              pipe: 0,
               node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
             });
 
@@ -248,6 +253,7 @@ export default defineComponent({
               totalRequested: lq.dequeue?.requested ?? 0,
               totalAccepted: lq.dequeue?.accepted ?? 0,
               totalRejected: lq.dequeue?.rejected ?? 0,
+              pipe: lq.dequeue?.pipe ?? 0,
               node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
               perSec: lq.perSec ?? 0,
               inFlight: lq.inFlight ?? 0,
@@ -306,8 +312,8 @@ export default defineComponent({
       Object.entries(queueDetails.value).map(([name, info]) => ({
         queue: name,
         size: info.size + (info.pendingToBeRecovered ?? 0),
-        enqueue: info.enqueue[0]?.totalAccepted ?? 0,
-        dequeue: info.dequeue[0]?.totalAccepted ?? 0,
+        enqueue: (info.enqueue[0]?.totalAccepted ?? 0) + (info.enqueue[0]?.pipe ?? 0),
+        dequeue: (info.dequeue[0]?.totalAccepted ?? 0) + (info.dequeue[0]?.pipe ?? 0),
         consumers: info.consumers.length,
         perSec: `${info.perSec}/${info.maxPerSec}`, // Display current and max TPS
         inFlight: `${info.inFlight}`, // Placeholder or remove this line if not needed
@@ -323,6 +329,7 @@ export default defineComponent({
           totalRequested: info.dequeue[0]?.totalRequested ?? 0,
           totalAccepted: info.dequeue[0]?.totalAccepted ?? 0,
           totalRejected: info.dequeue[0]?.totalRejected ?? 0,
+          pipe: info.dequeue[0]?.pipe ?? 0,
           node: info.dequeue[0]?.node ?? 'Unknown',
           delivery: info.dequeue[0]?.delivery ?? { accepted: 0, error: 0, perSec: 0 },
           deliveryAccepted: info.dequeue[0]?.delivery.accepted ?? 0,
@@ -403,6 +410,8 @@ export default defineComponent({
       { name: 'node', label: 'Node', field: 'node' },
       { name: 'totalSubmitted', label: 'Submitted', field: 'totalSubmitted' },
       { name: 'totalAccepted', label: 'Accepted', field: 'totalAccepted' },
+      { name: 'pipe', label: 'Piped', field: 'pipe' },
+
       { name: 'totalRejected', label: 'Rejected', field: 'totalRejected' },
     ];
 
@@ -418,6 +427,7 @@ export default defineComponent({
       { name: 'totalRequested', label: 'Requested', field: 'totalRequested' },
       { name: 'totalAccepted', label: 'Accepted', field: 'totalAccepted' },
       { name: 'totalRejected', label: 'Rejected', field: 'totalRejected' },
+      { name: 'pipe', label: 'Piped', field: 'pipe' },
       { name: 'deliveryAccepted', label: 'Delivery Accepted', field: 'deliveryAccepted' },
       { name: 'deliveryError', label: 'Delivery Error', field: 'deliveryError' },
       { name: 'perSec', label: 'Throughput', field: 'perSec' },

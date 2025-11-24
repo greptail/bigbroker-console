@@ -11,9 +11,16 @@ export interface QueueApiResponse {
         requested?: number;
         accepted?: number;
         rejected?: number;
+        pipe?: number;
         delivery?: { accepted?: number; rejected?: number };
       };
-      enqueue?: { requested?: number; submitted?: number; accepted?: number; rejected?: number };
+      enqueue?: {
+        requested?: number;
+        submitted?: number;
+        accepted?: number;
+        rejected?: number;
+        pipe?: number;
+      };
       recovery?: { requested?: number; submitted?: number; accepted?: number; rejected?: number };
       consumers?: string[];
       node?: { host?: string; port?: number };
@@ -23,10 +30,17 @@ export interface QueueApiResponse {
     maxPerSec?: number;
     inFlight?: number;
     pendingToBeRecovered?: number;
-    enqueue?: { requested?: number; submitted?: number; accepted?: number; rejected?: number };
+    enqueue?: {
+      requested?: number;
+      submitted?: number;
+      accepted?: number;
+      rejected?: number;
+      pipe?: number;
+    };
     dequeue?: {
       requested?: number;
       accepted?: number;
+      pipe?: number;
       rejected?: number;
       delivery?: { accepted?: number; rejected?: number };
     };
@@ -43,6 +57,7 @@ export interface DeliveryInfo {
 export interface DequeueInfo {
   totalRequested: number;
   totalAccepted: number;
+  pipe: number;
   totalRejected: number;
   perSec: number;
   inFlight: number;
@@ -66,6 +81,7 @@ export interface QueueInfo {
     totalSubmitted: number;
     totalAccepted: number;
     totalRejected: number;
+    pipe: number;
     node: string;
   }>;
   dequeue: Array<DequeueWithDelivery>;
@@ -73,6 +89,7 @@ export interface QueueInfo {
     totalSubmitted: number;
     totalAccepted: number;
     totalRejected: number;
+    pipe: number;
     node: string;
   }>;
 }
