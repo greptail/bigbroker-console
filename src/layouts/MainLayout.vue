@@ -352,27 +352,50 @@ export default defineComponent({
       }).onOk(() => {
         void (async () => {
           try {
+            $q.loading.show({ message: 'Deleting queue...' });
+
             const resDel = await axios.delete(`/api/queue/${queueName}`);
-            if (resDel.status < 200 || resDel.status >= 300) throw new Error('Delete failed');
+            if (resDel.status < 200 || resDel.status >= 300) {
+              throw new Error('Delete failed');
+            }
+
+            // Wait 1 second before finalize call
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+
+            $q.loading.show({ message: 'Finalizing...' });
 
             const resFinalize = await axios.delete(`/api/queue/${queueName}/finalize`);
-            if (resFinalize.status < 200 || resFinalize.status >= 300)
+            if (resFinalize.status < 200 || resFinalize.status >= 300) {
               throw new Error('Finalize failed');
+            }
 
             delete queueDetails.value[queueName];
+
             $q.notify({
               message: `Queue "${queueName}" deleted.`,
               color: 'positive',
               icon: 'check',
             });
           } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
+            let msg = '';
+            if (axios.isAxiosError(err)) {
+              const backendMsg = err.response?.data
+                ? JSON.stringify(err.response.data)
+                : err.message;
+              msg = backendMsg;
+            } else {
+              msg = err instanceof Error ? err.message : String(err);
+            }
+
             console.error(err);
+
             $q.notify({
               message: `Error deleting queue "${queueName}": ${msg}`,
               color: 'negative',
               icon: 'error',
             });
+          } finally {
+            $q.loading.hide();
           }
         })();
       });
