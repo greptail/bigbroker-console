@@ -78,11 +78,25 @@ export default defineConfig((/* ctx */) => {
 
     devServer: {
       server: { type: 'http' },
+      compress: false, // Important: Disable gzip compression to avoid buffering SSE
       proxy: [
         {
           context: ['/api'],
           target: 'http://localhost:1771',
           changeOrigin: true,
+          secure: false,
+          ws: true, // Support WebSocket if needed (often helps with upgrading connections)
+          // Essential for SSE: disable proxy timeout
+          proxyTimeout: 0,
+          timeout: 0, // Disable socket timeout
+          onProxyRes: (proxyRes) => {
+            // Ensure headers for SSE are passed through if needed, though usually automatic
+            if (proxyRes.headers['content-type'] === 'text/event-stream;charset=UTF-8') {
+              proxyRes.headers['connection'] = 'keep-alive';
+              proxyRes.headers['cache-control'] = 'no-cache';
+            }
+          },
+
           // Remove this line: pathRewrite: { '^/api': '' },
           logLevel: 'debug',
           configure: (proxy, options) => {

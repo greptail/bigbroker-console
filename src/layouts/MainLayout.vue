@@ -142,7 +142,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, onMounted, computed, onUnmounted } from 'vue';
+import { defineComponent, ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import { useQuasar, type QTableProps, Dialog } from 'quasar';
 import axios from 'axios';
 import CreateQueueDialog from 'components/CreateQueueDialog.vue';
@@ -164,7 +164,121 @@ export default defineComponent({
     const queueDetails = ref<Record<string, QueueInfo>>({});
     const expandedTabs = ref<Record<string, string>>({});
     const autoRefresh = ref(false);
-    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    // -------------------------------
+    // Fetch Queues
+    // -------------------------------
+    // -------------------------------
+    // Format Queue Data
+    // -------------------------------
+    const formatQueueData = (data: QueueApiResponse[]) => {
+      const formatted: Record<string, QueueInfo> = {};
+      data.forEach((item) => {
+        if (!expandedTabs.value[item.name]) {
+          expandedTabs.value[item.name] = 'consumers';
+        }
+        const metric = item.metric ?? {};
+        const dq = metric.dequeue ?? {};
+        const enq = metric.enqueue ?? {};
+        const rec = metric.recovery ?? {};
+        const localQueues = metric.localQueues ?? [];
+
+        formatted[item.name] = {
+          nodes: localQueues.map((lq) => lq.ref),
+          size: metric.size ?? 0,
+          pendingToBeRecovered: metric.pendingToBeRecovered ?? 0,
+          partition: `${localQueues.length} nodes`,
+          perSec: metric.perSec ?? 0,
+          producerPerSec: metric.producePerSec ?? 0,
+
+          maxPerSec: metric.maxPerSec ?? 0,
+
+          consumers: metric.consumers ?? [],
+          inFlight: metric.inFlight ?? 0,
+          enqueue: [
+            {
+              totalSubmitted: enq.submitted ?? 0,
+              totalAccepted: enq.accepted ?? 0,
+              totalRejected: enq.rejected ?? 0,
+              producePerSec: item.metric?.producePerSec ?? 0,
+              pipe: enq.pipe ?? 0,
+              node: 'All',
+            },
+          ],
+          recovery: [
+            {
+              totalSubmitted: rec.submitted ?? 0,
+              totalAccepted: rec.accepted ?? 0,
+              totalRejected: rec.rejected ?? 0,
+              pipe: 0,
+              node: 'All',
+            },
+          ],
+          dequeue: [
+            {
+              totalRequested: dq.requested ?? 0,
+              totalAccepted: dq.accepted ?? 0,
+              totalRejected: dq.rejected ?? 0,
+              pipe: dq.pipe ?? 0,
+              node: 'All',
+              perSec: item.metric?.perSec ?? 0,
+              inFlight: item.metric?.inFlight ?? 0,
+              delivery: {
+                accepted: dq.delivery?.accepted ?? 0,
+                error: dq.delivery?.rejected ?? 0,
+                perSec: 0,
+              },
+              deliveryAccepted: dq.delivery?.accepted ?? 0,
+              deliveryError: dq.delivery?.rejected ?? 0,
+            },
+          ],
+        };
+
+        item.metric?.localQueues?.forEach((lq) => {
+          formatted[item.name]?.enqueue.push({
+            totalSubmitted: lq.enqueue?.submitted ?? 0,
+            totalAccepted: lq.enqueue?.accepted ?? 0,
+            totalRejected: lq.enqueue?.rejected ?? 0,
+            producePerSec: lq.producePerSec ?? 0,
+            pipe: lq.enqueue?.pipe ?? 0,
+            node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
+          });
+
+          formatted[item.name]?.recovery.push({
+            totalSubmitted: lq.recovery?.submitted ?? 0,
+            totalAccepted: lq.recovery?.accepted ?? 0,
+            totalRejected: lq.recovery?.rejected ?? 0,
+            pipe: 0,
+            node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
+          });
+
+          formatted[item.name]?.dequeue.push({
+            totalRequested: lq.dequeue?.requested ?? 0,
+            totalAccepted: lq.dequeue?.accepted ?? 0,
+            totalRejected: lq.dequeue?.rejected ?? 0,
+            pipe: lq.dequeue?.pipe ?? 0,
+            node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
+            perSec: lq.perSec ?? 0,
+            inFlight: lq.inFlight ?? 0,
+            delivery: {
+              accepted: lq.dequeue?.delivery?.accepted ?? 0,
+              error: lq.dequeue?.delivery?.rejected ?? 0,
+              perSec: lq.perSec ?? 0,
+            },
+            deliveryAccepted: lq.dequeue?.delivery?.accepted ?? 0,
+            deliveryError: lq.dequeue?.delivery?.rejected ?? 0,
+          });
+        });
+      });
+
+      const existingTabs = { ...expandedTabs.value };
+      Object.keys(formatted).forEach((q) => {
+        if (!existingTabs[q]) existingTabs[q] = 'nodes';
+      });
+
+      queueDetails.value = formatted;
+      expandedTabs.value = existingTabs;
+    };
 
     // -------------------------------
     // Fetch Queues
@@ -172,127 +286,63 @@ export default defineComponent({
     const fetchQueues = async (): Promise<void> => {
       try {
         const res = await axios.get<QueueApiResponse[]>('/api/queue');
-        const formatted: Record<string, QueueInfo> = {};
-
-        res.data.forEach((item) => {
-          if (!expandedTabs.value[item.name]) {
-            expandedTabs.value[item.name] = 'consumers';
-          }
-          const metric = item.metric ?? {};
-          const dq = metric.dequeue ?? {};
-          const enq = metric.enqueue ?? {};
-          const rec = metric.recovery ?? {};
-          const localQueues = metric.localQueues ?? [];
-
-          formatted[item.name] = {
-            nodes: localQueues.map((lq) => lq.ref),
-            size: metric.size ?? 0,
-            pendingToBeRecovered: metric.pendingToBeRecovered ?? 0,
-            partition: `${localQueues.length} nodes`,
-            perSec: metric.perSec ?? 0,
-            maxPerSec: metric.maxPerSec ?? 0,
-
-            consumers: metric.consumers ?? [],
-            inFlight: metric.inFlight ?? 0, // Added inFlight property with a default value
-            enqueue: [
-              {
-                totalSubmitted: enq.submitted ?? 0,
-                totalAccepted: enq.accepted ?? 0,
-                totalRejected: enq.rejected ?? 0,
-                pipe: enq.pipe ?? 0,
-                node: 'All',
-              },
-            ],
-            recovery: [
-              {
-                totalSubmitted: rec.submitted ?? 0,
-                totalAccepted: rec.accepted ?? 0,
-                totalRejected: rec.rejected ?? 0,
-                pipe: 0,
-                node: 'All',
-              },
-            ],
-            dequeue: [
-              {
-                totalRequested: dq.requested ?? 0,
-                totalAccepted: dq.accepted ?? 0,
-                totalRejected: dq.rejected ?? 0,
-                pipe: dq.pipe ?? 0,
-                node: 'All',
-                perSec: item.metric?.perSec ?? 0,
-                inFlight: item.metric?.inFlight ?? 0,
-                delivery: {
-                  accepted: dq.delivery?.accepted ?? 0,
-                  error: dq.delivery?.rejected ?? 0,
-                  perSec: 0,
-                },
-                deliveryAccepted: dq.delivery?.accepted ?? 0,
-                deliveryError: dq.delivery?.rejected ?? 0,
-              },
-            ],
-          };
-
-          item.metric?.localQueues?.forEach((lq) => {
-            formatted[item.name]?.enqueue.push({
-              totalSubmitted: lq.enqueue?.submitted ?? 0,
-              totalAccepted: lq.enqueue?.accepted ?? 0,
-              totalRejected: lq.enqueue?.rejected ?? 0,
-              pipe: lq.enqueue?.pipe ?? 0,
-              node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
-            });
-
-            formatted[item.name]?.recovery.push({
-              totalSubmitted: lq.recovery?.submitted ?? 0,
-              totalAccepted: lq.recovery?.accepted ?? 0,
-              totalRejected: lq.recovery?.rejected ?? 0,
-              pipe: 0,
-              node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
-            });
-
-            formatted[item.name]?.dequeue.push({
-              totalRequested: lq.dequeue?.requested ?? 0,
-              totalAccepted: lq.dequeue?.accepted ?? 0,
-              totalRejected: lq.dequeue?.rejected ?? 0,
-              pipe: lq.dequeue?.pipe ?? 0,
-              node: lq?.node ? `${lq.node.host}:${lq.node.port}` : 'All',
-              perSec: lq.perSec ?? 0,
-              inFlight: lq.inFlight ?? 0,
-              delivery: {
-                accepted: lq.dequeue?.delivery?.accepted ?? 0,
-                error: lq.dequeue?.delivery?.rejected ?? 0,
-                perSec: lq.perSec ?? 0,
-              },
-              deliveryAccepted: lq.dequeue?.delivery?.accepted ?? 0,
-              deliveryError: lq.dequeue?.delivery?.rejected ?? 0,
-            });
-          });
-        });
-
-        const existingTabs = { ...expandedTabs.value };
-        Object.keys(formatted).forEach((q) => {
-          if (!existingTabs[q]) existingTabs[q] = 'nodes';
-        });
-
-        queueDetails.value = formatted;
-        expandedTabs.value = existingTabs;
+        formatQueueData(res.data);
       } catch (err) {
         console.error(err);
         $q.notify({ type: 'negative', message: 'Failed to fetch queue details' });
       }
     };
 
+    let queueEventSource: EventSource | null = null;
+
+    const stopQueueStream = () => {
+      if (queueEventSource) {
+        queueEventSource.close();
+        queueEventSource = null;
+      }
+    };
+
+    const startQueueStream = () => {
+      stopQueueStream(); // Close existing connection if any
+
+      queueEventSource = new EventSource('/api/queueStream');
+
+      queueEventSource.onmessage = (event) => {
+        try {
+          const res: QueueApiResponse[] = JSON.parse(event.data);
+          formatQueueData(res);
+        } catch (err) {
+          console.error('Error parsing SSE data', err);
+        }
+      };
+
+      queueEventSource.onerror = (err) => {
+        console.error('Queue SSE connection error', err);
+        // Try reconnecting after a delay if autoRefresh is still true
+        if (autoRefresh.value) {
+          queueEventSource?.close();
+          setTimeout(startQueueStream, 5000);
+        }
+      };
+    };
+
+    watch(autoRefresh, (newVal) => {
+      if (newVal) {
+        startQueueStream();
+      } else {
+        stopQueueStream();
+      }
+    });
+
     // -------------------------------
     // Lifecycle Hooks
     // -------------------------------
     onMounted(() => {
       void fetchQueues();
-      intervalId = setInterval(() => {
-        if (autoRefresh.value) void fetchQueues();
-      }, 1000);
     });
 
     onUnmounted(() => {
-      if (intervalId) clearInterval(intervalId);
+      stopQueueStream();
     });
 
     // -------------------------------
@@ -302,7 +352,8 @@ export default defineComponent({
       { name: 'queue', label: 'Queue', field: 'queue', align: 'left' },
       { name: 'size', label: 'Size', field: 'size', align: 'right' },
       { name: 'consumers', label: 'Consumers', field: 'consumers', align: 'right' },
-      { name: 'tps', label: 'Throughput per Sec', field: 'perSec', align: 'right' },
+      { name: 'tps', label: 'Produce per Sec', field: 'producePerSec', align: 'right' },
+      { name: 'tps', label: 'Consume per Sec', field: 'perSec', align: 'right' },
       { name: 'inFlight', label: 'In Flight', field: 'inFlight', align: 'right' },
       { name: 'enqueue', label: 'Enqueue', field: 'enqueue', align: 'right' },
       { name: 'dequeue', label: 'Dequeue', field: 'dequeue', align: 'right' },
@@ -316,6 +367,7 @@ export default defineComponent({
         dequeue: (info.dequeue[0]?.totalAccepted ?? 0) + (info.dequeue[0]?.pipe ?? 0),
         consumers: info.consumers.length,
         perSec: `${info.perSec}/${info.maxPerSec}`, // Display current and max TPS
+        producePerSec: info.producerPerSec,
         inFlight: `${info.inFlight}`, // Placeholder or remove this line if not needed
       })),
     );
@@ -434,6 +486,8 @@ export default defineComponent({
       { name: 'totalSubmitted', label: 'Submitted', field: 'totalSubmitted' },
       { name: 'totalAccepted', label: 'Accepted', field: 'totalAccepted' },
       { name: 'pipe', label: 'Piped', field: 'pipe' },
+
+      { name: 'producePerSec', label: 'Throughput', field: 'producePerSec' },
 
       { name: 'totalRejected', label: 'Rejected', field: 'totalRejected' },
     ];

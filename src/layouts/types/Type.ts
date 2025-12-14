@@ -5,6 +5,7 @@ export interface QueueApiResponse {
       ref: string;
       localQueueDepth?: number;
       perSec?: number;
+      producePerSec?: number;
       maxPerSec?: number;
       inFlight?: number;
       dequeue?: {
@@ -27,6 +28,7 @@ export interface QueueApiResponse {
     }>;
     size?: number;
     perSec?: number;
+    producePerSec?: number;
     maxPerSec?: number;
     inFlight?: number;
     pendingToBeRecovered?: number;
@@ -74,6 +76,7 @@ export interface QueueInfo {
   pendingToBeRecovered: number;
   partition: string;
   perSec: number;
+  producerPerSec: number;
   maxPerSec: number;
   inFlight: number;
   consumers: string[];
@@ -81,6 +84,7 @@ export interface QueueInfo {
     totalSubmitted: number;
     totalAccepted: number;
     totalRejected: number;
+    producePerSec: number;
     pipe: number;
     node: string;
   }>;
