@@ -32,6 +32,8 @@ export interface QueueApiResponse {
     maxPerSec?: number;
     inFlight?: number;
     pendingToBeRecovered?: number;
+    pendingLeders?: number;
+    underRecovery?: boolean;
     enqueue?: {
       requested?: number;
       submitted?: number;
@@ -74,6 +76,8 @@ export interface QueueInfo {
   nodes: string[];
   size: number;
   pendingToBeRecovered: number;
+  pendingLedgers: number;
+  underRecovery: boolean;
   partition: string;
   perSec: number;
   producerPerSec: number;

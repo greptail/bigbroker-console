@@ -7,6 +7,15 @@
       </q-toolbar>
     </q-header>
 
+    <!-- Connection Status Banner -->
+    <q-banner v-if="connectionStatus !== 'connected' && autoRefresh" class="connection-banner" :class="connectionStatus">
+      <template v-slot:avatar>
+        <q-icon name="warning" color="white" />
+      </template>
+      <span v-if="connectionStatus === 'disconnected'">Disconnected from broker. Attempting to reconnect...</span>
+      <span v-else-if="connectionStatus === 'connecting'">Connecting to broker...</span>
+    </q-banner>
+
     <q-page-container class="q-pa-md">
       <!-- Auto-refresh toggle -->
       <div class="row justify-end q-mb-md" style="padding-top: 20px">
@@ -45,7 +54,7 @@
           </template>
 
           <template v-slot:body="props">
-            <q-tr :props="props">
+            <q-tr :props="props" :class="{ 'blink-amber': props.row.underRecovery }">
               <q-td auto-width>
                 <q-btn
                   size="sm"
@@ -164,6 +173,7 @@ export default defineComponent({
     const queueDetails = ref<Record<string, QueueInfo>>({});
     const expandedTabs = ref<Record<string, string>>({});
     const autoRefresh = ref(false);
+    const connectionStatus = ref<'connected' | 'disconnected' | 'connecting'>('connected');
 
     // -------------------------------
     // Fetch Queues
@@ -187,6 +197,8 @@ export default defineComponent({
           nodes: localQueues.map((lq) => lq.ref),
           size: metric.size ?? 0,
           pendingToBeRecovered: metric.pendingToBeRecovered ?? 0,
+          pendingLedgers: metric.pendingLeders ?? 0,
+          underRecovery: metric.underRecovery ?? false,
           partition: `${localQueues.length} nodes`,
           perSec: metric.perSec ?? 0,
           producerPerSec: metric.producePerSec ?? 0,
@@ -294,8 +306,46 @@ export default defineComponent({
     };
 
     let queueEventSource: EventSource | null = null;
+    let reconnectAttempts = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+    const maxReconnectDelay = 30000; // Max 30 seconds between attempts
+    const baseReconnectDelay = 2000; // Start with 2 seconds
+    const heartbeatTimeout = 10000; // If no data for 10 seconds, consider disconnected
+
+    const resetHeartbeat = () => {
+      if (heartbeatTimer) {
+        clearTimeout(heartbeatTimer);
+      }
+      heartbeatTimer = setTimeout(() => {
+        console.warn('Heartbeat timeout - no data received for 10s');
+        if (autoRefresh.value && queueEventSource) {
+          // Force reconnection due to stale connection
+          connectionStatus.value = 'disconnected';
+          queueEventSource.close();
+          queueEventSource = null;
+          reconnectAttempts++;
+          const delay = Math.min(baseReconnectDelay * Math.pow(1.5, reconnectAttempts - 1), maxReconnectDelay);
+          console.log(`Heartbeat timeout - Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
+          $q.notify({
+            type: 'warning',
+            message: `No data from broker. Reconnecting in ${Math.round(delay / 1000)}s...`,
+            timeout: delay,
+          });
+          reconnectTimer = setTimeout(startQueueStream, delay);
+        }
+      }, heartbeatTimeout);
+    };
 
     const stopQueueStream = () => {
+      if (heartbeatTimer) {
+        clearTimeout(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       if (queueEventSource) {
         queueEventSource.close();
         queueEventSource = null;
@@ -305,10 +355,24 @@ export default defineComponent({
     const startQueueStream = () => {
       stopQueueStream(); // Close existing connection if any
 
+      connectionStatus.value = 'connecting';
       queueEventSource = new EventSource('/api/queueStream');
+
+      queueEventSource.onopen = () => {
+        console.log('SSE connection established');
+        reconnectAttempts = 0; // Reset attempts on successful connection
+        connectionStatus.value = 'connected';
+        resetHeartbeat(); // Start heartbeat monitoring
+        $q.notify({
+          type: 'positive',
+          message: 'Connected to broker',
+          timeout: 2000,
+        });
+      };
 
       queueEventSource.onmessage = (event) => {
         try {
+          resetHeartbeat(); // Reset heartbeat on each message
           const res: QueueApiResponse[] = JSON.parse(event.data);
           formatQueueData(res);
         } catch (err) {
@@ -316,21 +380,47 @@ export default defineComponent({
         }
       };
 
-      queueEventSource.onerror = (err) => {
-        console.error('Queue SSE connection error', err);
-        // Try reconnecting after a delay if autoRefresh is still true
+      queueEventSource.onerror = () => {
+        console.error('Queue SSE connection error, readyState:', queueEventSource?.readyState);
+
+        // Close the errored connection
+        queueEventSource?.close();
+        queueEventSource = null;
+        connectionStatus.value = 'disconnected';
+
+        // Clear heartbeat timer
+        if (heartbeatTimer) {
+          clearTimeout(heartbeatTimer);
+          heartbeatTimer = null;
+        }
+
+        // Only reconnect if autoRefresh is still enabled
         if (autoRefresh.value) {
-          queueEventSource?.close();
-          setTimeout(startQueueStream, 5000);
+          reconnectAttempts++;
+          // Calculate delay with exponential backoff
+          const delay = Math.min(baseReconnectDelay * Math.pow(1.5, reconnectAttempts - 1), maxReconnectDelay);
+
+          console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
+
+          $q.notify({
+            type: 'warning',
+            message: `Connection lost. Reconnecting in ${Math.round(delay / 1000)}s...`,
+            timeout: delay,
+          });
+
+          reconnectTimer = setTimeout(startQueueStream, delay);
         }
       };
     };
 
     watch(autoRefresh, (newVal) => {
       if (newVal) {
+        reconnectAttempts = 0;
+        connectionStatus.value = 'connecting';
         startQueueStream();
       } else {
         stopQueueStream();
+        connectionStatus.value = 'connected'; // Reset when auto-refresh is off
       }
     });
 
@@ -355,7 +445,8 @@ export default defineComponent({
       { name: 'tps', label: 'Produce per Sec', field: 'producePerSec', align: 'right' },
       { name: 'tps', label: 'Consume per Sec', field: 'perSec', align: 'right' },
       { name: 'inFlight', label: 'In Flight', field: 'inFlight', align: 'right' },
-      { name: 'enqueue', label: 'Enqueue', field: 'enqueue', align: 'right' },
+      { name: 'prepBacklog', label: 'Pending Ledgers', field: 'prepBacklog', align: 'right' },
+       { name: 'enqueue', label: 'Enqueue', field: 'enqueue', align: 'right' },
       { name: 'dequeue', label: 'Dequeue', field: 'dequeue', align: 'right' },
     ];
 
@@ -368,7 +459,10 @@ export default defineComponent({
         consumers: info.consumers.length,
         perSec: `${info.perSec}/${info.maxPerSec}`, // Display current and max TPS
         producePerSec: info.producerPerSec,
-        inFlight: `${info.inFlight}`, // Placeholder or remove this line if not needed
+        prepBacklog: info.pendingLedgers,
+        recvBacklog: info.pendingToBeRecovered,
+        inFlight: `${info.inFlight}`,
+        underRecovery: info.underRecovery,
       })),
     );
 
@@ -520,9 +614,51 @@ export default defineComponent({
       recoveryColumns,
       expandedTabs,
       autoRefresh,
+      connectionStatus,
       deleteQueue,
       createQueue,
     };
   },
 });
 </script>
+
+<style scoped>
+@keyframes blink-amber {
+  0%, 100% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: rgba(255, 191, 0, 0.3);
+  }
+}
+
+.blink-amber {
+  animation: blink-amber 1.5s ease-in-out infinite;
+}
+
+.connection-banner {
+  position: sticky;
+  top: 50px;
+  z-index: 100;
+}
+
+.connection-banner.disconnected {
+  background-color: #ff5252;
+  color: white;
+  animation: pulse-red 1.5s ease-in-out infinite;
+}
+
+.connection-banner.connecting {
+  background-color: #fb8c00;
+  color: white;
+}
+
+@keyframes pulse-red {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+</style>
