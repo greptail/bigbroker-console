@@ -72,7 +72,7 @@
                     dense
                     color="primary"
                     :label="col.value"
-                    @click="viewLedgers(props.row.queue)"
+                    @click="viewLedgers(props.row.queue, props.row.size, false)"
                     v-if="props.row.pendingLedgers > 0"
                   />
                   <span v-else>{{ col.value }}</span>
@@ -82,14 +82,26 @@
                 </template>
               </q-td>
               <q-td auto-width>
-                <q-btn
-                  size="sm"
-                  color="negative"
-                  icon="delete"
-                  round
-                  dense
-                  @click="deleteQueue(props.row.queue)"
-                />
+                <div class="row no-wrap q-gutter-x-sm">
+                  <q-btn
+                    size="sm"
+                    color="secondary"
+                    icon="visibility"
+                    round
+                    dense
+                    @click="viewLedgers(props.row.queue, props.row.size, true)"
+                  >
+                    <q-tooltip>View All Ledgers</q-tooltip>
+                  </q-btn>
+                  <q-btn
+                    size="sm"
+                    color="negative"
+                    icon="delete"
+                    round
+                    dense
+                    @click="deleteQueue(props.row.queue)"
+                  />
+                </div>
               </q-td>
             </q-tr>
 
@@ -164,8 +176,32 @@
       <q-dialog v-model="ledgerModalOpen" full-width>
         <q-card>
           <q-card-section class="row items-center q-pb-none">
-            <div class="text-h6">Pending Ledgers for: {{ currentQueueName }}</div>
+            <div class="row items-center no-wrap">
+              <q-btn
+                flat
+                dense
+                color="primary"
+                icon="chevron_left"
+                label="Previous"
+                @click="navigateToQueue(-1)"
+              />
+              <div class="text-h6 q-mx-md">{{ modalTitle }}: {{ currentQueueName }}</div>
+              <q-btn
+                flat
+                dense
+                color="primary"
+                icon-right="chevron_right"
+                label="Next"
+                @click="navigateToQueue(1)"
+              />
+            </div>
             <q-space />
+            <q-toggle
+              v-model="showEmptyLedgers"
+              label="Show All"
+              color="primary"
+              class="q-mr-md"
+            />
             <q-btn icon="close" flat round dense v-close-popup />
           </q-card-section>
 
@@ -173,14 +209,67 @@
             <q-table
               flat
               bordered
-              :rows="selectedQueueLedgers"
+              :rows="filteredLedgers"
               :columns="ledgerColumns"
               :loading="isLoadingLedgers"
               row-key="ledgerId"
-              :pagination="{ rowsPerPage: 15 }"
+              v-model:pagination="ledgerPagination"
+              style="height: 70vh"
             >
+              <template v-slot:pagination="scope">
+                <q-btn
+                  v-if="scope.pagesNumber > 1"
+                  icon="chevron_left"
+                  color="grey-8"
+                  round
+                  dense
+                  flat
+                  :disable="scope.isFirstPage"
+                  @click="scope.prevPage"
+                />
+                <q-btn
+                  v-if="scope.pagesNumber > 1"
+                  color="primary"
+                  label="Previous"
+                  flat
+                  :disable="scope.isFirstPage"
+                  @click="scope.prevPage"
+                />
+                <div class="q-mx-sm">Page {{ scope.pagination.page }} / {{ scope.pagesNumber }}</div>
+                <q-btn
+                  v-if="scope.pagesNumber > 1"
+                  color="primary"
+                  label="Next"
+                  flat
+                  :disable="scope.isLastPage"
+                  @click="scope.nextPage"
+                />
+                <q-btn
+                  v-if="scope.pagesNumber > 1"
+                  icon="chevron_right"
+                  color="grey-8"
+                  round
+                  dense
+                  flat
+                  :disable="scope.isLastPage"
+                  @click="scope.nextPage"
+                />
+              </template>
               <template v-slot:loading>
                 <q-inner-loading showing color="primary" />
+              </template>
+
+              <template v-slot:bottom-row>
+                <q-tr class="bg-grey-2 text-weight-bold sticky-footer">
+                  <q-td colspan="2" class="text-right">Totals (Enqueue - Dequeue):</q-td>
+                  <q-td colspan="2" class="text-left">
+                    {{ ledgerTotals.totalEnqueue }} - {{ ledgerTotals.totalDequeue }} =
+                    <q-badge :color="ledgerTotals.diff === 0 ? 'green' : 'orange'" class="text-subtitle2">
+                      {{ ledgerTotals.diff }}
+                    </q-badge>
+                  </q-td>
+                  <q-td colspan="2" class="text-right">Queue Size: {{ ledgerTotals.queueSize }}</q-td>
+                </q-tr>
               </template>
             </q-table>
           </q-card-section>
@@ -221,6 +310,41 @@ export default defineComponent({
     const selectedQueueLedgers = ref<LedgerRecord[]>([]);
     const isLoadingLedgers = ref(false);
     const currentQueueName = ref('');
+    const currentQueueSize = ref(0);
+    const modalTitle = ref('Pending Ledgers');
+    const showEmptyLedgers = ref(false);
+    const isAllView = ref(false);
+    const ledgerPagination = ref({
+      page: 1,
+      rowsPerPage: 15,
+    });
+
+    const filteredLedgers = computed(() => {
+      if (showEmptyLedgers.value) {
+        return selectedQueueLedgers.value;
+      }
+      return selectedQueueLedgers.value.filter(
+        (l) => !(l.processed && l.totalRecordProcessed === 0)
+      );
+    });
+
+    const ledgerTotals = computed(() => {
+      const enq = filteredLedgers.value.reduce((sum, l) => sum + (l.totalEnqueueRecord || 0), 0);
+      const deq = filteredLedgers.value.reduce((sum, l) => sum + (l.totalDequeueRecord || 0), 0);
+
+      // Reactive queue size lookup from the main data source
+      const name = currentQueueName.value;
+      const info = queueDetails.value[name];
+      // Match the size calculation used in summaryRows (size + pendingToBeRecovered)
+      const size = info ? (info.size + (info.pendingToBeRecovered || 0)) : (currentQueueSize.value || 0);
+
+      return {
+        totalEnqueue: enq,
+        totalDequeue: deq,
+        diff: enq - deq,
+        queueSize: size,
+      };
+    });
 
     // -------------------------------
     // Fetch Queues
@@ -535,14 +659,18 @@ export default defineComponent({
     // -------------------------------
     // View Ledgers
     // -------------------------------
-    const viewLedgers = async (queueName: string): Promise<void> => {
+    const viewLedgers = async (queueName: string, size: number, all: boolean = false): Promise<void> => {
       currentQueueName.value = queueName;
+      currentQueueSize.value = size;
+      isAllView.value = all;
+      modalTitle.value = all ? 'All Ledgers' : 'Pending Ledgers';
       ledgerModalOpen.value = true;
       isLoadingLedgers.value = true;
       selectedQueueLedgers.value = [];
 
       try {
-        const res = await axios.get<LedgerRecord[]>(`/api/ledger?queue=${queueName}`);
+        const url = all ? `/api/ledger?queue=${queueName}&include=all` : `/api/ledger?queue=${queueName}`;
+        const res = await axios.get<LedgerRecord[]>(url);
         selectedQueueLedgers.value = res.data;
       } catch (err) {
         console.error(err);
@@ -552,6 +680,21 @@ export default defineComponent({
         });
       } finally {
         isLoadingLedgers.value = false;
+      }
+    };
+
+    const navigateToQueue = (direction: number) => {
+      const rows = summaryRows.value;
+      const currentIndex = rows.findIndex((r) => r.queue === currentQueueName.value);
+      if (currentIndex === -1) return;
+
+      let nextIndex = currentIndex + direction;
+      if (nextIndex < 0) nextIndex = rows.length - 1;
+      if (nextIndex >= rows.length) nextIndex = 0;
+
+      const nextRow = rows[nextIndex];
+      if (nextRow) {
+        void viewLedgers(nextRow.queue, nextRow.size, isAllView.value);
       }
     };
 
@@ -725,7 +868,15 @@ export default defineComponent({
       selectedQueueLedgers,
       isLoadingLedgers,
       currentQueueName,
+      currentQueueSize,
+      modalTitle,
+      showEmptyLedgers,
+      isAllView,
+      filteredLedgers,
+      ledgerTotals,
+      ledgerPagination,
       viewLedgers,
+      navigateToQueue,
       expandedTabs,
       autoRefresh,
       connectionStatus,
@@ -774,5 +925,17 @@ export default defineComponent({
   50% {
     opacity: 0.7;
   }
+}
+
+.sticky-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  background-color: #eeeeee !important; /* bg-grey-2 */
+}
+
+/* Ensure the sticky row stays above other rows */
+.sticky-footer td {
+  box-shadow: 0 -1px 0 rgba(0,0,0,0.1);
 }
 </style>
