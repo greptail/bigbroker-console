@@ -17,8 +17,9 @@ server {
     # SSE Stream - Needs Connection Keep-Alive and No Buffering
     location /api/queueStream {
         # Use variable to force DNS re-resolution on each request
-        set $backend_url "${API_URL}";
-        proxy_pass $backend_url/api/queueStream;
+        # Variable should be hostname:port only (no http://)
+        set $backend "pg-plus-broker.default.svc.cluster.local:1771";
+        proxy_pass http://$backend/api/queueStream;
         
         proxy_http_version 1.1;
         proxy_set_header Connection "";
@@ -38,8 +39,9 @@ server {
     # Reverse proxy for API requests
     location /api/ {
         # Use variable to force DNS re-resolution on each request
-        set $backend_url "${API_URL}";
-        proxy_pass $backend_url/api/;
+        # Variable should be hostname:port only (no http://)
+        set $backend "pg-plus-broker.default.svc.cluster.local:1771";
+        proxy_pass http://$backend/api/;
         
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
