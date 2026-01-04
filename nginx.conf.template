@@ -5,10 +5,9 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Use Kubernetes DNS resolver with short TTL to handle pod IP changes
-    # kube-dns is at 10.96.0.10 by default in most K8s clusters
-    # Use 'valid=10s' to re-resolve every 10 seconds
-    resolver kube-dns.kube-system.svc.cluster.local valid=10s ipv6=off;
+    # Use Kubernetes DNS resolver (kube-dns ClusterIP) with short TTL
+    # to handle pod IP changes during deployments
+    resolver 10.96.0.10 valid=10s ipv6=off;
     resolver_timeout 5s;
 
     location / {
