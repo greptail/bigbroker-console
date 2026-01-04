@@ -5,7 +5,7 @@ server {
     root /usr/share/nginx/html;
     index index.html;
     
-    # Use Kubernetes DNS resolver (kube-dns ClusterIP) with 5s TTL
+    # Use Kubernetes DNS resolver
     resolver 10.96.0.10 valid=5s ipv6=off;
     resolver_timeout 5s;
 
@@ -13,36 +13,28 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # SSE Stream
-    location /api/queueStream {
+    # Dynamic Proxy using variables
+    # This forces Nginx to use the resolver for every request
+    location /api/ {
         set $backend "${API_URL}";
-        proxy_pass http://$backend;
+        
+        # Use $request_uri to pass the EXACT original path (e.g., /api/queue)
+        # to the backend without any internal Nginx path rewriting.
+        proxy_pass http://$backend$request_uri;
         
         proxy_http_version 1.1;
-        proxy_set_header Connection "";
         proxy_set_header Host $backend;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
+        # SSE and Stream support
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 24h;
-    }
-
-    # Reverse proxy for API requests
-    location /api/ {
-        set $backend "${API_URL}";
-        proxy_pass http://$backend;
         
-        proxy_set_header Host $backend;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Timeout settings
+        # Timeouts
         proxy_connect_timeout 5s;
         proxy_send_timeout 10s;
-        proxy_read_timeout 30s;
     }
 }
