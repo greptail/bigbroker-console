@@ -66,7 +66,20 @@
                 />
               </q-td>
               <q-td v-for="col in props.cols" :key="col.name" :props="props">
-                {{ col.value }}
+                <template v-if="col.name === 'pendingLedgers'">
+                  <q-btn
+                    flat
+                    dense
+                    color="primary"
+                    :label="col.value"
+                    @click="viewLedgers(props.row.queue)"
+                    v-if="props.row.pendingLedgers > 0"
+                  />
+                  <span v-else>{{ col.value }}</span>
+                </template>
+                <template v-else>
+                  {{ col.value }}
+                </template>
               </q-td>
               <q-td auto-width>
                 <q-btn
@@ -146,6 +159,33 @@
 
         <CreateQueueDialog v-if="false" />
       </div>
+
+      <!-- Pending Ledgers Modal -->
+      <q-dialog v-model="ledgerModalOpen" full-width>
+        <q-card>
+          <q-card-section class="row items-center q-pb-none">
+            <div class="text-h6">Pending Ledgers for: {{ currentQueueName }}</div>
+            <q-space />
+            <q-btn icon="close" flat round dense v-close-popup />
+          </q-card-section>
+
+          <q-card-section>
+            <q-table
+              flat
+              bordered
+              :rows="selectedQueueLedgers"
+              :columns="ledgerColumns"
+              :loading="isLoadingLedgers"
+              row-key="ledgerId"
+              :pagination="{ rowsPerPage: 15 }"
+            >
+              <template v-slot:loading>
+                <q-inner-loading showing color="primary" />
+              </template>
+            </q-table>
+          </q-card-section>
+        </q-card>
+      </q-dialog>
     </q-page-container>
   </q-layout>
 </template>
@@ -162,6 +202,7 @@ import type {
   QueueInfo,
   SummaryRow,
   DequeueWithDelivery,
+  LedgerRecord,
 } from 'src/layouts/types/Type';
 // --- Local Interfaces ---
 
@@ -174,6 +215,12 @@ export default defineComponent({
     const expandedTabs = ref<Record<string, string>>({});
     const autoRefresh = ref(false);
     const connectionStatus = ref<'connected' | 'disconnected' | 'connecting'>('connected');
+
+    // Ledger Modal State
+    const ledgerModalOpen = ref(false);
+    const selectedQueueLedgers = ref<LedgerRecord[]>([]);
+    const isLoadingLedgers = ref(false);
+    const currentQueueName = ref('');
 
     // -------------------------------
     // Fetch Queues
@@ -445,7 +492,7 @@ export default defineComponent({
       { name: 'tps', label: 'Produce per Sec', field: 'producePerSec', align: 'right' },
       { name: 'tps', label: 'Consume per Sec', field: 'perSec', align: 'right' },
       { name: 'inFlight', label: 'In Flight', field: 'inFlight', align: 'right' },
-      { name: 'prepBacklog', label: 'Pending Ledgers', field: 'prepBacklog', align: 'right' },
+      { name: 'pendingLedgers', label: 'Pending Ledgers', field: 'pendingLedgers', align: 'right' },
        { name: 'enqueue', label: 'Enqueue', field: 'enqueue', align: 'right' },
       { name: 'dequeue', label: 'Dequeue', field: 'dequeue', align: 'right' },
     ];
@@ -459,8 +506,7 @@ export default defineComponent({
         consumers: info.consumers.length,
         perSec: `${info.perSec}/${info.maxPerSec}`, // Display current and max TPS
         producePerSec: info.producerPerSec,
-        prepBacklog: info.pendingLedgers,
-        recvBacklog: info.pendingToBeRecovered,
+        pendingLedgers: info.pendingLedgers,
         inFlight: `${info.inFlight}`,
         underRecovery: info.underRecovery,
       })),
@@ -484,6 +530,29 @@ export default defineComponent({
           inFlight: info.dequeue[0]?.inFlight ?? 0,
         },
       };
+    };
+
+    // -------------------------------
+    // View Ledgers
+    // -------------------------------
+    const viewLedgers = async (queueName: string): Promise<void> => {
+      currentQueueName.value = queueName;
+      ledgerModalOpen.value = true;
+      isLoadingLedgers.value = true;
+      selectedQueueLedgers.value = [];
+
+      try {
+        const res = await axios.get<LedgerRecord[]>(`/api/ledger?queue=${queueName}`);
+        selectedQueueLedgers.value = res.data;
+      } catch (err) {
+        console.error(err);
+        $q.notify({
+          type: 'negative',
+          message: `Failed to fetch ledgers for queue "${queueName}"`,
+        });
+      } finally {
+        isLoadingLedgers.value = false;
+      }
     };
 
     // -------------------------------
@@ -605,6 +674,45 @@ export default defineComponent({
       { name: 'inFlight', label: 'In Flight', field: 'inFlight' },
     ];
 
+    const ledgerColumns: QTableProps['columns'] = [
+      { name: 'ledgerId', label: 'Ledger ID', field: 'ledgerId', align: 'left', sortable: true },
+      {
+        name: 'processed',
+        label: 'Processed',
+        field: 'processed',
+        align: 'center',
+        format: (val: boolean) => (val ? 'Yes' : 'No'),
+      },
+      {
+        name: 'totalEnqueueRecord',
+        label: 'Enqueued',
+        field: 'totalEnqueueRecord',
+        align: 'right',
+        sortable: true,
+      },
+      {
+        name: 'totalDequeueRecord',
+        label: 'Dequeued',
+        field: 'totalDequeueRecord',
+        align: 'right',
+        sortable: true,
+      },
+      {
+        name: 'totalRecordProcessed',
+        label: 'Processed Recs',
+        field: 'totalRecordProcessed',
+        align: 'right',
+        sortable: true,
+      },
+      {
+        name: 'timeElapsed',
+        label: 'Time (ms)',
+        field: 'timeElapsed',
+        align: 'right',
+        sortable: true,
+      },
+    ];
+
     return {
       summaryColumns,
       summaryRows,
@@ -612,6 +720,12 @@ export default defineComponent({
       enqueueColumns,
       dequeueColumns,
       recoveryColumns,
+      ledgerColumns,
+      ledgerModalOpen,
+      selectedQueueLedgers,
+      isLoadingLedgers,
+      currentQueueName,
+      viewLedgers,
       expandedTabs,
       autoRefresh,
       connectionStatus,

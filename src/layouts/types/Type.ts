@@ -106,8 +106,12 @@ export interface SummaryRow {
   size: number;
   enqueue: number;
   dequeue: number;
-  consumers?: number;
-  tps?: string;
+  consumers: number;
+  perSec: string;
+  producePerSec: number;
+  pendingLedgers: number;
+  inFlight: string;
+  underRecovery: boolean;
 }
 
 export interface QueueInstanceRecord {
