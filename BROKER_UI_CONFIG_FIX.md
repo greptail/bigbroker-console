@@ -16,20 +16,24 @@ Updated `nginx.conf.template` to:
 
 1. Add DNS resolver directive: `resolver 10.96.0.10 valid=5s`
 2. Use variables in `proxy_pass` to force DNS re-resolution
-3. Changed backend URL to use direct service instead of ExternalName
+3. Changed backend URL format to hostname:port (without http://)
 
 ## Required Helm Values Update
 
-Update your helm values file to use the direct service URL:
+Update your helm values file to use the direct service URL **without the http:// prefix**:
 
 ```yaml
 env:
-  API_URL: 'http://pg-plus-broker.default.svc.cluster.local:1771'
+  API_URL: 'pg-plus-broker.default.svc.cluster.local:1771'
   NGINX_HOST: 'localhost'
   NGINX_PORT: '80'
 ```
 
-**Change:** `http://broker-gateway` → `http://pg-plus-broker.default.svc.cluster.local:1771`
+**Important Changes:**
+
+- Old: `API_URL: "http://broker-gateway"`
+- New: `API_URL: "pg-plus-broker.default.svc.cluster.local:1771"`
+- Format: `hostname:port` (NO `http://` prefix)
 
 ## Why This Works
 
@@ -37,6 +41,7 @@ env:
 - The full FQDN `pg-plus-broker.default.svc.cluster.local` ensures proper DNS resolution
 - NGINX resolver re-resolves DNS every 5 seconds to pick up endpoint changes
 - Kubernetes handles routing from ClusterIP to pod IPs automatically
+- Using variable `$backend` forces NGINX to use the resolver instead of startup DNS cache
 
 ## Optional: Remove broker-gateway Service
 
@@ -45,6 +50,24 @@ The `broker-gateway` ExternalName service is no longer needed and can be deleted
 ```bash
 kubectl delete svc broker-gateway
 ```
+
+## Testing
+
+After updating helm values and deploying the new image:
+
+1. Test the API connection:
+
+   ```bash
+   kubectl exec <ui-pod> -- curl -s http://localhost/api/queue
+   ```
+
+2. Redeploy the broker (WITHOUT deleting the service):
+
+   ```bash
+   kubectl rollout restart deployment/pg-plus-broker
+   ```
+
+3. UI should continue working without restart
 
 ## Deployment
 
